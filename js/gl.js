@@ -190,6 +190,7 @@ function stringToUTF8(str, heap, outIdx, maxBytesToWrite) {
 }
 var FS = {
     loaded_files: [],
+    image_dims: [],
     unique_id: 0
 };
 
@@ -1353,6 +1354,42 @@ var importObject = {
             xhr.send();
 
             return file_id;
+        },
+
+        fs_load_image: function (ptr, len) {
+            var url = UTF8ToString(ptr, len);
+            console.log("fs_load_image: " + url);
+            var file_id = FS.unique_id;
+            FS.unique_id += 1;
+            const image = new Image();
+            image.onload = () => {
+
+                console.log("fs_load_image::onload " + url);
+                const offscreen_canvas = new OffscreenCanvas(image.width, image.height);
+                const ctx = offscreen_canvas.getContext('2d');
+                ctx.drawImage(image, 0, 0);
+
+                FS.image_dims[file_id] = { width: image.width, height: image.height};
+                FS.loaded_files[file_id] = ctx.getImageData(0, 0, image.width, image.height).data;
+                wasm_exports.file_loaded(file_id);
+            };
+            image.onerror = () => {
+                console.log("fs_load_image::onerror " + url);
+                FS.image_dims[file_id] = { width: 0, height: 0 };
+                FS.loaded_files[file_id] = null;
+                wasm_exports.file_loaded(file_id);
+            };
+            image.src = url;
+
+            return file_id;
+        },
+
+        fs_get_image_width: function (file_id) {
+            return FS.image_dims[file_id].width;
+        },
+        
+        fs_get_image_height: function (file_id) {
+            return FS.image_dims[file_id].height;
         },
 
         fs_get_buffer_size: function (file_id) {

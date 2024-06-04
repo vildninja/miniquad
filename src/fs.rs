@@ -27,6 +27,7 @@ impl From<std::io::Error> for Error {
 }
 
 pub type Response = Result<Vec<u8>, Error>;
+pub type ImageResponse = Result<(u32, u32, Vec<u8>), Error>;
 
 /// Filesystem path on desktops or HTTP URL in WASM
 pub fn load_file<F: Fn(Response) + 'static>(path: &str, on_loaded: F) {
@@ -41,6 +42,21 @@ pub fn load_file<F: Fn(Response) + 'static>(path: &str, on_loaded: F) {
 
     #[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
     load_file_desktop(path, on_loaded);
+}
+
+/// Filesystem path on desktops or HTTP URL in WASM
+pub fn load_image<F: Fn(ImageResponse) + 'static>(path: &str, on_loaded: F) {
+    #[cfg(target_arch = "wasm32")]
+    wasm::load_image(path, on_loaded);
+
+    // #[cfg(target_os = "android")]
+    // load_file_android(path, on_loaded);
+
+    // #[cfg(target_os = "ios")]
+    // ios::load_file(path, on_loaded);
+
+    // #[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+    // load_file_desktop(path, on_loaded);
 }
 
 #[cfg(target_os = "android")]
@@ -72,6 +88,7 @@ fn load_file_android<F: Fn(Response)>(path: &str, on_loaded: F) {
 #[cfg(target_arch = "wasm32")]
 mod wasm {
     use super::Response;
+    use super::ImageResponse;
     use crate::native;
 
     use std::{cell::RefCell, collections::HashMap, thread_local};
@@ -111,6 +128,27 @@ mod wasm {
         FILES.with(|files| {
             let mut files = files.borrow_mut();
             files.insert(file_id, Box::new(on_loaded));
+        });
+    }
+
+    pub fn load_image<F: Fn(ImageResponse) + 'static>(path: &str, on_loaded: F) {
+        use native::wasm::fs;
+        use std::ffi::CString;
+
+        let url = CString::new(path).unwrap();
+        let file_id = unsafe { fs::fs_load_image(url.as_ptr(), url.as_bytes().len() as u32) };
+        FILES.with(move |files| {
+            let mut files = files.borrow_mut();
+            files.insert(file_id, Box::new(move |res: Response| {
+                if let Ok(data) = res {
+                    // TODO: use map instead
+                    let width = unsafe { fs::fs_get_image_width(file_id) as u32 };
+                    let height = unsafe { fs::fs_get_image_height(file_id) as u32 };
+                    on_loaded(Ok((width, height, data)));
+                } else {
+                    on_loaded(Err(res.unwrap_err()));
+                }
+            }));
         });
     }
 }

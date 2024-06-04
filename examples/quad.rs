@@ -1,3 +1,8 @@
+use std::cell::RefCell;
+use std::ops::DerefMut;
+use std::rc::Rc;
+
+use fs::ImageResponse;
 use miniquad::*;
 
 #[repr(C)]
@@ -11,12 +16,25 @@ struct Vertex {
     uv: Vec2,
 }
 
+// struct ImageData {
+//     width: u32,
+//     height: u32,
+//     pixels: Vec<u8>,
+// }
+
+struct PendingImage {
+    response: Rc<RefCell<Option<fs::ImageResponse>>>,
+    texture: TextureId,
+}
+
 struct Stage {
     ctx: Box<dyn RenderingBackend>,
 
     pipeline: Pipeline,
     bindings: Bindings,
+    images: Vec<PendingImage>
 }
+
 
 impl Stage {
     pub fn new() -> Stage {
@@ -43,13 +61,26 @@ impl Stage {
         );
 
         let pixels: [u8; 4 * 4 * 4] = [
-            0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00,
-            0x00, 0xFF, 0xFF, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0xFF,
+            0xFF, 0xFF, 0xFF, 0x00, 0xFF, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00,
+            0x00, 0xFF, 0xFF, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0xFF,
             0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0xFF, 0xFF,
             0xFF, 0xFF, 0xFF, 0x00, 0x00, 0xFF, 0xFF, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-            0xFF, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+            0xFF, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0x00,
         ];
         let texture = ctx.new_texture_from_rgba8(4, 4, &pixels);
+
+        let profile_picture = Rc::new(RefCell::new(Option::<fs::ImageResponse>::None));
+
+        let mut images: Vec<PendingImage> = Vec::new();
+        images.push(PendingImage{
+            response: profile_picture.clone(),
+            texture,
+        });
+
+        fs::load_image("/examples/pew.png", move |response| {
+            let mut inner = profile_picture.borrow_mut();
+            *inner = Some(response);
+        });
 
         let bindings = Bindings {
             vertex_buffers: vec![vertex_buffer],
@@ -79,19 +110,53 @@ impl Stage {
                 VertexAttribute::new("in_uv", VertexFormat::Float2),
             ],
             shader,
-            PipelineParams::default(),
+            
+            PipelineParams{
+                color_blend: Some(BlendState::new(
+                    Equation::Add, 
+                    BlendFactor::Value(BlendValue::SourceAlpha),
+                    BlendFactor::OneMinusValue(BlendValue::SourceAlpha))
+                ),
+                depth_write: false,
+                ..PipelineParams::default()
+            },
         );
 
         Stage {
             pipeline,
             bindings,
             ctx,
+            images,
         }
     }
 }
 
 impl EventHandler for Stage {
-    fn update(&mut self) {}
+    fn update(&mut self) {
+
+        let done = self.images.iter_mut().filter_map(|item| {
+            if let Some(response) = item.response.borrow_mut().take() {
+                Some((item.texture, response))
+            } else { None }
+        })
+        .collect::<Vec<_>>();
+
+        for (texture, response) in done {
+            if let Ok((w, h, pixels)) = response {
+                self.ctx.texture_resize(texture, w, h, Some(&pixels));
+            }
+        };
+
+        // self.images.retain(|item| {
+        //     let tex_id = item.texture;
+        //     if let Some(response) = item.response.borrow_mut().take() {
+        //         if let Ok((w, h, pixels)) = response {
+        //             self.ctx.texture_resize(tex_id, w, h, Some(&pixels));
+        //         }
+        //         true
+        //     } else { false }
+        // });
+    }
 
     fn draw(&mut self) {
         let t = date::now();
