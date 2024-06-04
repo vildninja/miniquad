@@ -136,7 +136,7 @@ mod wasm {
         use std::ffi::CString;
 
         let url = CString::new(path).unwrap();
-        let file_id = unsafe { fs::fs_load_image(url.as_ptr(), url.as_bytes().len() as u32) };
+        let file_id = unsafe { fs::fs_load_image(url.as_ptr(), url.as_bytes().len() as u32, true) };
         FILES.with(move |files| {
             let mut files = files.borrow_mut();
             files.insert(file_id, Box::new(move |res: Response| {

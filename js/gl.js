@@ -1364,7 +1364,7 @@ var importObject = {
             return file_id;
         },
 
-        fs_load_image: function (ptr, len) {
+        fs_load_image: function (ptr, len, flipped) {
             var url = UTF8ToString(ptr, len);
             console.log("fs_load_image: " + url);
             var file_id = FS.unique_id;
@@ -1375,6 +1375,10 @@ var importObject = {
                 console.log("fs_load_image::onload " + url);
                 const offscreen_canvas = new OffscreenCanvas(image.width, image.height);
                 const ctx = offscreen_canvas.getContext('2d');
+                if (flipped) {
+                    ctx.translate(0, image.height);
+                    ctx.scale(1, -1);
+                }
                 ctx.drawImage(image, 0, 0);
 
                 FS.image_dims[file_id] = { width: image.width, height: image.height};
